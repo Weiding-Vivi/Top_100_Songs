@@ -1,7 +1,9 @@
+// vite.config.js
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  base: '/top100-music-visual/',  // 注意前后有斜杠
+
+  plugins: [react()]
 })
