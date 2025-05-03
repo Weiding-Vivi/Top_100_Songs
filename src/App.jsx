@@ -11,6 +11,7 @@ function App() {
   const [activeGenre, setActiveGenre] = useState(null);
   const [yearRange, setYearRange] = useState([2010, 2020]);
   const svgRef = useRef(null);
+  const legendRef = useRef(null);
 
   useEffect(() => {
     setSongs(songsData);
@@ -19,18 +20,22 @@ function App() {
   useEffect(() => {
     if (songs.length === 0) return;
 
-    const width = 1100;
+    const filteredSongs = songs.filter(d => {
+      const inYear = d.year >= yearRange[0] && d.year <= yearRange[1];
+      const inGenre = activeGenre === null || d.genre === activeGenre;
+      return inYear && inGenre;
+    });
+
+    const width = 1000;
     const height = 500;
     const margin = { top: 40, right: 40, bottom: 40, left: 100 };
     const genres = Array.from(new Set(songs.map(s => s.genre))).sort();
-    const years = songs.map(s => s.year);
+    const years = Array.from(new Set(filteredSongs.map(s => s.year))).sort();
 
-    const xExtent = d3.extent(years);
-    const xDomain = [xExtent[0] - 0.5, xExtent[1] + 0.5];
-
-    const xScale = d3.scaleLinear()
-      .domain(xDomain)
-      .range([margin.left, width - margin.right]);
+    const xScale = d3.scalePoint()
+      .domain(years)
+      .range([margin.left, width - margin.right])
+      .padding(0.5);
 
     const yScale = d3.scalePoint()
       .domain(genres)
@@ -42,12 +47,12 @@ function App() {
       .range(d3.schemeTableau10);
 
     const positionMap = {};
-    songs.forEach(song => {
+    filteredSongs.forEach(song => {
       const key = `${song.year}-${song.genre}`;
       if (!positionMap[key]) positionMap[key] = [];
       positionMap[key].push(song);
     });
-    songs.forEach(song => {
+    filteredSongs.forEach(song => {
       const key = `${song.year}-${song.genre}`;
       song.offsetIndex = positionMap[key].indexOf(song);
       song.totalOverlap = positionMap[key].length;
@@ -81,7 +86,7 @@ function App() {
     const tooltip = d3.select('#tooltip');
 
     svg.selectAll('circle')
-      .data(songs)
+      .data(filteredSongs)
       .enter()
       .append('circle')
       .attr('cx', d => {
@@ -96,11 +101,6 @@ function App() {
       .attr('stroke', '#333')
       .attr('stroke-width', 0.5)
       .style('transition', 'all 0.2s ease')
-      .style('opacity', d => {
-        const inYear = d.year >= yearRange[0] && d.year <= yearRange[1];
-        const inGenre = activeGenre === null || d.genre === activeGenre;
-        return inYear && inGenre ? 1 : 0.1;
-      })
       .on('mouseenter', function (event, d) {
         tooltip
           .style('visibility', 'visible')
@@ -124,6 +124,34 @@ function App() {
       .on('click', function (event, d) {
         setSelectedSong(d);
       });
+
+    const legendContainer = d3.select(legendRef.current);
+    legendContainer.selectAll('*').remove();
+
+    const legend = legendContainer
+      .append('svg')
+      .attr('width', 1000)
+      .attr('height', genres.length * 22);
+
+    genres.forEach((genre, i) => {
+      const row = legend.append('g')
+        .attr('transform', `translate(100, ${i * 20 + 10})`);
+
+      row.append('circle')
+        .attr('cx', 0)
+        .attr('cy', 0)
+        .attr('r', 6)
+        .attr('fill', colorScale(genre))
+        .attr('stroke', '#333')
+        .attr('stroke-width', 0.5);
+
+      row.append('text')
+        .attr('x', 12)
+        .attr('y', 4)
+        .text(genre)
+        .style('font-size', '12px')
+        .style('alignment-baseline', 'middle');
+    });
   }, [songs, activeGenre, yearRange]);
 
   const genreList = Array.from(new Set(songs.map(s => s.genre))).sort();
@@ -135,22 +163,32 @@ function App() {
     .domain(genreList)
     .range(d3.schemeTableau10);
 
+  const jumpToNextInGenre = (current) => {
+    const filtered = songs.filter(s => s.genre === current.genre);
+    const idx = filtered.findIndex(s => s.id === current.id);
+    const next = filtered[(idx + 1) % filtered.length];
+    setSelectedSong(next);
+  };
+
+  const jumpToNextInYear = (current) => {
+    const filtered = songs.filter(s => s.year === current.year);
+    const idx = filtered.findIndex(s => s.id === current.id);
+    const next = filtered[(idx + 1) % filtered.length];
+    setSelectedSong(next);
+  };
+
+  const handleCloseCard = () => {
+    setSelectedSong(null);
+  };
+
   return (
     <div style={{ padding: '20px', position: 'relative' }}>
       <h1>Top 100 Songs Navigator</h1>
       <GenreFilter genres={genreList} activeGenre={activeGenre} setActiveGenre={setActiveGenre} colorScale={colorScale} />
       <YearSlider minYear={minYear} maxYear={maxYear} yearRange={yearRange} setYearRange={setYearRange} />
-      <svg ref={svgRef} width={1100} height={500}></svg>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '10px' }}>
-        {genreList.map((genre) => (
-          <div key={genre} style={{ display: 'flex', alignItems: 'center' }}>
-            <svg width={12} height={12}>
-              <circle cx={6} cy={6} r={6} fill={colorScale(genre)} stroke="#333" strokeWidth={0.5} />
-            </svg>
-            <span style={{ marginLeft: 4, fontSize: '13px' }}>{genre}</span>
-          </div>
-        ))}
-      </div>
+      <svg ref={svgRef} width={1000} height={500}></svg>
+      <hr style={{ margin: '40px 0' }} />
+      <div ref={legendRef} style={{ marginBottom: '20px' }}></div>
       <div id="tooltip" style={{
         position: 'absolute',
         padding: '6px 10px',
@@ -161,7 +199,14 @@ function App() {
         visibility: 'hidden',
         fontSize: '14px'
       }}></div>
-      {selectedSong && <SongDetailCard song={selectedSong} />}
+      {selectedSong && (
+        <SongDetailCard
+          song={selectedSong}
+          jumpToNextInGenre={jumpToNextInGenre}
+          jumpToNextInYear={jumpToNextInYear}
+          onClose={handleCloseCard}
+        />
+      )}
     </div>
   );
 }
